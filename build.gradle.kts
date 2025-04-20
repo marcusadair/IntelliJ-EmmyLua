@@ -17,11 +17,23 @@
 import de.undercouch.gradle.tasks.download.*
 import org.apache.tools.ant.taskdefs.condition.Os
 import java.io.ByteArrayOutputStream
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+import org.jetbrains.intellij.platform.gradle.extensions.intellijPlatform
 
 plugins {
-    id("org.jetbrains.intellij").version("1.13.3")
-    id("org.jetbrains.kotlin.jvm").version("1.8.21")
-    id("de.undercouch.download").version("5.3.0")
+    java
+    kotlin("jvm") version "1.9.21"
+    id("org.jetbrains.intellij.platform") version "2.5.0"
+    id("org.jetbrains.intellij.platform.migration") version "2.5.0"
+    id("de.undercouch.download") version "5.3.0"
+}
+
+repositories {
+    mavenCentral()
+    intellijPlatform {
+        defaultRepositories()
+    }
 }
 
 data class BuildData(
@@ -31,8 +43,8 @@ data class BuildData(
     val sinceBuild: String,
     val untilBuild: String,
     val archiveName: String = "IntelliJ-EmmyLua",
-    val jvmTarget: String = "1.8",
-    val targetCompatibilityLevel: JavaVersion = JavaVersion.VERSION_11,
+    val jvmTarget: String = "17",
+    val targetCompatibilityLevel: JavaVersion = JavaVersion.VERSION_17,
     val explicitJavaDependency: Boolean = true,
     val bunch: String = ideaSDKShortVersion,
     // https://github.com/JetBrains/gradle-intellij-plugin/issues/403#issuecomment-542890849
@@ -66,30 +78,35 @@ val isCI = System.getenv("CI") != null
 // CI
 if (isCI) {
     version = System.getenv("CI_BUILD_VERSION")
-    exec {
+    project.exec { // Fix 1: Use project.exec
         executable = "git"
         args("config", "--global", "user.email", "love.tangzx@qq.com")
     }
-    exec {
+    project.exec { // Fix 1: Use project.exec
         executable = "git"
         args("config", "--global", "user.name", "tangzx")
     }
 }
 
+// Keep version assignment if not CI or after CI setup
+if (!isCI) {
+    version = "DEVELOPMENT-SNAPSHOT" // Or your default development version
+}
 version = "${version}-IDEA${buildVersion}"
 
-fun getRev(): String {
+
+fun getRev(execOps: ExecOperations): String { // Pass ExecOperations
     val os = ByteArrayOutputStream()
-    exec {
+    execOps.exec { // Fix 2: Use ExecOperations passed as parameter
         executable = "git"
         args("rev-parse", "HEAD")
         standardOutput = os
     }
-    return os.toString().substring(0, 7)
+    return os.toString().trim().substring(0, 7) // Use trim() for safety
 }
 
-task("downloadEmmyDebugger", type = Download::class) {
-    src(arrayOf(
+tasks.register<Download>("downloadEmmyDebugger") {
+src(arrayOf(
         "https://github.com/EmmyLua/EmmyLuaDebugger/releases/download/${emmyDebuggerVersion}/darwin-arm64.zip",
         "https://github.com/EmmyLua/EmmyLuaDebugger/releases/download/${emmyDebuggerVersion}/darwin-x64.zip",
         "https://github.com/EmmyLua/EmmyLuaDebugger/releases/download/${emmyDebuggerVersion}/linux-x64.zip",
@@ -100,8 +117,8 @@ task("downloadEmmyDebugger", type = Download::class) {
     dest("temp")
 }
 
-task("unzipEmmyDebugger", type = Copy::class) {
-    dependsOn("downloadEmmyDebugger")
+tasks.register<Copy>("unzipEmmyDebugger") {
+dependsOn("downloadEmmyDebugger")
     from(zipTree("temp/win32-x86.zip")) {
         into("windows/x86")
     }
@@ -120,8 +137,8 @@ task("unzipEmmyDebugger", type = Copy::class) {
     destinationDir = file("temp")
 }
 
-task("installEmmyDebugger", type = Copy::class) {
-    dependsOn("unzipEmmyDebugger")
+tasks.register<Copy>("installEmmyDebugger") {
+dependsOn("unzipEmmyDebugger")
     from("temp/windows/x64/") {
         include("emmy_core.dll")
         into("debugger/emmy/windows/x64")
@@ -147,11 +164,18 @@ task("installEmmyDebugger", type = Copy::class) {
 
 project(":") {
     repositories {
-        maven(url = "https://www.jetbrains.com/intellij-repository/releases")
         mavenCentral()
+        intellijPlatform {
+            defaultRepositories()
+        }
     }
 
     dependencies {
+        intellijPlatform {
+            create("IC", buildVersionData.ideaSDKVersion)
+            testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
+             bundledPlugin("com.intellij.java")
+        }
         implementation(fileTree(baseDir = "libs") { include("*.jar") })
         implementation("com.google.code.gson:gson:2.8.6")
         implementation("org.scala-sbt.ipcsocket:ipcsocket:1.3.0")
@@ -168,45 +192,66 @@ project(":") {
         }
     }
 
-    /*configure<JavaPluginConvention> {
-        sourceCompatibility = buildVersionData.targetCompatibilityLevel
-        targetCompatibility = buildVersionData.targetCompatibilityLevel
-    }*/
+    java {
+        toolchain {
+            languageVersion.set(JavaLanguageVersion.of(buildVersionData.jvmTarget))
+        }
+    }
+    intellijPlatform {
+        pluginConfiguration {
+            ideaVersion {
+                sinceBuild = "242"
+            }
 
-    intellij {
-        type.set("IC")
-        updateSinceUntilBuild.set(false)
-        downloadSources.set(!isCI)
-        version.set(buildVersionData.ideaSDKVersion)
-        //localPath.set(System.getenv("IDEA_HOME_${buildVersionData.ideaSDKShortVersion}"))
-        sandboxDir.set("${project.buildDir}/${buildVersionData.ideaSDKShortVersion}/idea-sandbox")
+            changeNotes = """
+      Initial version
+    """.trimIndent()
+        }
     }
 
-    task("bunch") {
-        doLast {
-            val rev = getRev()
+//    intellij {
+//        type.set("IC")
+//        updateSinceUntilBuild.set(false)
+//        downloadSources.set(!isCI)
+//        version.set(buildVersionData.ideaSDKVersion)
+//        //localPath.set(System.getenv("IDEA_HOME_${buildVersionData.ideaSDKShortVersion}"))
+//        sandboxDir.set("${project.buildDir}/${buildVersionData.ideaSDKShortVersion}/idea-sandbox")
+//    }
+
+    // Inject ExecOperations service for use in tasks/functions if needed elsewhere
+    // val execOperations: ExecOperations by service() // Requires Gradle 7.4+ and plugins {} block
+
+    abstract class BunchTask : DefaultTask() { // Create abstract task for injection
+        @get:Inject
+        abstract val execOperations: ExecOperations
+
+        @TaskAction
+        fun execute() {
+            val rev = getRev(execOperations) // Pass injected service
             // reset
-            exec {
+            execOperations.exec { // Fix 3: Use injected execOperations
                 executable = "git"
                 args("reset", "HEAD", "--hard")
             }
             // clean untracked files
-            exec {
+            execOperations.exec { // Fix 3: Use injected execOperations
                 executable = "git"
                 args("clean", "-d", "-f")
             }
             // switch
-            exec {
+            execOperations.exec { // Fix 3: Use injected execOperations
                 executable = if (isWin) "bunch/bin/bunch.bat" else "bunch/bin/bunch"
                 args("switch", ".", buildVersionData.bunch)
             }
             // reset to HEAD
-            exec {
+            execOperations.exec { // Fix 3: Use injected execOperations
                 executable = "git"
                 args("reset", rev)
             }
         }
     }
+
+    tasks.register<BunchTask>("bunch") // Register using the abstract task type
 
     tasks {
         buildPlugin {
