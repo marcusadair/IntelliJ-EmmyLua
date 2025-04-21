@@ -1,0 +1,17 @@
+[versions]
+
+[libraries]
+junit = { group = "junit", name = "junit", version = "4.13.2" }
+gson = { group = "com.google.code.gson", name = "gson", version = "2.8.6" }
+sbtIPCSocket = { group = "org.scala-sbt.ipcsocket", name = "ipcsocket", version = "1.3.0" }
+luajJSE = { group = "org.luaj", name = "luaj-jse", version = "3.0.1" }
+egitCore = { group = "org.eclipse.mylyn.github", name = "org.eclipse.egit.github.core", version = "2.1.5" }
+jgoodiesForms = { group = "com.jgoodies", name = "forms", version = "1.2.1" }
+
+[plugins]
+kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version = "2.1.20" }
+intellijPlatform = { id = "org.jetbrains.intellij.platform", version = "2.5.0" }
+ideaExt = { id = "org.jetbrains.gradle.plugin.idea-ext", version = "1.1.10" }
+undercouchDownload = { id = "de.undercouch.download", version = "5.3.0" }
+
+

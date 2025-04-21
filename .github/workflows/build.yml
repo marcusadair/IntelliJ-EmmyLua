@@ -23,15 +23,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v3
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
-      - name: Build 2023.1
+      - name: Build 2025.1
         env:
-          IDEA_VER: 231
+          IDEA_VER: 251
         run: ./gradlew buildPlugin
 
       - name: Upload artifact
